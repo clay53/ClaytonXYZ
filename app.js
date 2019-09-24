@@ -862,16 +862,22 @@ app.post("/art/upload/reference", async (req, res) => {
 
         let checks = {
             creditLink: typeof(bodyJSON.creditLink) === "string" &&
+                (bodyJSON.creditTitle.length > 0 || bodyJSON.creditLink.length > 0) &&
                 bodyJSON.creditLink.length < 100,
             creditTitle: typeof(bodyJSON.creditTitle) === "string" &&
+                (bodyJSON.creditTitle.length > 0 || bodyJSON.creditLink.length > 0) &&
                 bodyJSON.creditTitle.length < 20,
             description: typeof(bodyJSON.description) === "string" &&
                 bodyJSON.description.length < 500,
             idToken: typeof(bodyJSON.idToken) === "string",
             image: typeof(bodyJSON.image) === "string" &&
-                bodyJSON.image.length <= 250000,
+                (() => {
+                    bodyJSON.image = bodyJSON.image.replace(/^data:image\/png;base64,/, "");
+                    return (bodyJSON.image.length <= 250000);
+                })(),
             path: typeof(bodyJSON.path) === "string",
             title: typeof(bodyJSON.title) === "string" &&
+                bodyJSON.title.length > 0 &&
                 bodyJSON.title.length < 20
         };
 
@@ -889,17 +895,22 @@ app.post("/art/upload/reference", async (req, res) => {
                     let fPath = `${path}/${bodyJSON.path.replace(/\//, '_')}_${user.uid}${bodyJSON.title}.png`;
                     fs.mkdir(path, {recursive: true}, (err) => {
                         if (!err) {
-                            fs.writeFile(fPath, bodyJSON.image, (err) => {
+                            fs.writeFile(fPath, bodyJSON.image, 'base64', (err) => {
                                 if (!err) {
                                     bucket.upload(fPath, {}).then(() => {
-                                        fs.unlink(fPath, (err) => {
-                                            if (!err) {
-                                                res.end("ok");
-                                            } else {
-                                                console.error(err);
-                                                res.status(500).send("Failed to remove image from filesystem.");
-                                            }
-                                        });
+                                        let doDelete = true;
+                                        if (doDelete) {
+                                            fs.unlink(fPath, (err) => {
+                                                if (!err) {
+                                                    res.end("ok");
+                                                } else {
+                                                    console.error(err);
+                                                    res.status(500).send("Failed to remove image from filesystem.");
+                                                }
+                                            });
+                                        } else {
+                                            res.end("ok");
+                                        }
                                     }).catch((err) => {
                                         console.error(err);
                                         res.status(500).send("Failed to upload image to server.");
@@ -945,6 +956,7 @@ app.get("/w/art/upload/reference", async (req, res) => {
 
         <div id="signedIn" style="display: none;">
             <script>
+                var lastPayload;
                 function uploadReference() {
                     firebase.auth().currentUser.getIdToken(true).then((idToken) => {
                         var error = false;
@@ -974,16 +986,16 @@ app.get("/w/art/upload/reference", async (req, res) => {
                                                     xhr.open("POST", "/art/upload/reference", true);
                                                     xhr.setRequestHeader('Content-Type', "application/json");
                                                     xhr.onreadystatechange = function () {
-                                                        console.log(this);
                                                         if (this.readyState === 4 && this.status === 200) {;
                                                             console.log(this.responseText);
                                                         }
                                                     }
                                                     payload.image = reader.result;
                                                     console.log(payload);
+                                                    lastPayload = payload;
                                                     xhr.send(JSON.stringify(payload));
                                                 };
-                                                reader.readAsBinaryString(file);
+                                                reader.readAsDataURL(file);
                                             } else {
                                                 error = true;
                                                 errorMsg += "Image is not of correct type (png).";
